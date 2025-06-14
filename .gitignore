@@ -1,0 +1,55 @@
+# Bytecode do Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Arquivos de log
+*.log
+
+# Configurações do sistema
+.DS_Store
+Thumbs.db
+
+# Ambientes virtuais
+env/
+venv/
+ENV/
+.venv/
+.virtualenv/
+
+# Dependências (geradas por pip freeze ou poetry)
+pip-log.txt
+poetry.lock
+
+# Arquivos temporários e cache de ferramentas
+*.bak
+*.swp
+*.tmp
+.cache/
+pytest_cache/
+.tox/
+.coverage
+coverage.xml
+htmlcov/
+.mypy_cache/
+.dmypy.json
+.pyre/
+
+# Notebooks Jupyter
+.ipynb_checkpoints
+
+# IDEs
+.vscode/
+.idea/
+
+# Arquivos de build/distribuição
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Configuração local de secrets/env
+.env
+.env.*
+*.secret
+*.key
