@@ -9,8 +9,8 @@ from utils.tracer import trace, report_exception
 from utils.local_cache import LocalCache
 
 
-CHTYPES = [2, 7]
-ACCCESS_LEVELS = [21]
+CHTYPES = [2, 3]
+ACCCESS_LEVELS = [1, 2]
 
 
 # db_config_windows = {
@@ -21,7 +21,7 @@ ACCCESS_LEVELS = [21]
 # mppr_db = SQLServerDBManager(**db_config_windows)
 
 invenzi = Invenzi()
-mppr_db = OracleDBManager('W_ACCESS', 'MGE5NjU3YmQ3ZTN#@1', 'oraprd2.mppr:1521/wxsp1')
+mppr_db = OracleDBManager()
 local_cache = LocalCache(mppr_db)
 
 # local_cache.clear_cache_completely()
@@ -35,22 +35,8 @@ SELECT
     desc_funcao,
     status,
     cod_regime
-FROM EADM.VW_WA_PESSOA_CONTROLE_ACESSO
-WHERE ROWNUM <= 10
+FROM {table}
 """
-
-# script_sql = """
-# SELECT
-#     top 10
-#     num_cpf,
-#     Tipo,
-#     nome_pessoa,
-#     num_rg,
-#     desc_funcao,
-#     status,
-#     cod_regime
-# FROM VW_WA_PESSOA_CONTROLE_ACESSO
-# """
 
 
 def get_all_wxs_users(mppr_users_list):
@@ -127,7 +113,7 @@ def main():
                     invenzi.update_user(wxs_user)
                 else:
                     trace(f"No changes for user {nome} (CPF: {cpf})")
-                
+
                 if not wxs_user.get('Cards'):
                     invenzi.assign_card(wxs_user)
 
