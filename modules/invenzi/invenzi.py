@@ -65,7 +65,7 @@ class Invenzi:
 
             if success:
                 try:
-                    response_data = response.json()
+                    response_data = response.json() if response.status_code != rc.no_content else {}
                 except Exception:
                     response_data = {}
             else:
@@ -96,14 +96,17 @@ class Invenzi:
             params["IncludeTables"] = include_tables
 
         while True:
+            trace(f"Getting all users: {params=}")
             success, data = self._api_call("cardholders", method='GET', params=params)
             if not success:
                 trace("Failed to retrieve users or no users found")
                 break
-
+            
+            trace('Appending users to obj...')
             for user_data in data:
                 users.append(user_data)
 
+            trace('Checking limit')
             if len(data) < limit:
                 break
             offset += limit
@@ -217,7 +220,16 @@ class Invenzi:
             report_exception(e, f"Error updating user {user.get('CHID')}")
 
     def delete_user(self, chid: int):
-        pass
+        success, data = self._api_call(
+            f"cardholders/{chid}",
+            method='DELETE'
+        )
+        if success:
+            self.trace(f"User deleted")
+            return data
+        else:
+            self.trace(f"Failed to delete")
+            return None
 
     def assign_card(self, user: dict, new_card: dict = None):
         try:
@@ -298,3 +310,18 @@ class Invenzi:
         except Exception as e:
             report_exception(e, f"Error assigning access level {access_level_id} to user {chid}")
             return False
+
+    def start_visit(self):
+        pass
+    
+    def end_visit(self, visitor):
+        success, data = self._api_call(
+            f"cardholders/{visitor['CHID']}/activeVisit",
+            method='DELETE'
+        )
+        if success and data:
+            self.trace(f"Visit ended to user: {visitor['FirstName']}")
+            return data
+        else:
+            self.trace(f"Failed to end visit to user {visitor['FirstName']}")
+            return None

@@ -15,7 +15,7 @@ load_dotenv()
 
 # Constantes (você pode ajustar conforme sua aplicação)
 try:
-    from functions import get_localtime, is_windows, remove_accents_from_string, format_date
+    from .functions import get_localtime, is_windows, remove_accents_from_string, format_date
 except ImportError:
     # Fallbacks caso não existam nas functions
     CONTROLLER_VERSION = "1.0.0"
@@ -144,10 +144,11 @@ class TracerQueue:
 
         # Processa para HTML
         if self.html_trace:
+            # x.year, x.month, x.day, x.hour, x.minute, x.second,
             fd = "%04d_%02d_%02d_%02d_%02d_%02d" % (
-                trace_msg.timestamp.tm_year, trace_msg.timestamp.tm_mon,
-                trace_msg.timestamp.tm_mday, trace_msg.timestamp.tm_hour,
-                trace_msg.timestamp.tm_min, trace_msg.timestamp.tm_sec
+                trace_msg.timestamp.year, trace_msg.timestamp.month,
+                trace_msg.timestamp.day, trace_msg.timestamp.hour,
+                trace_msg.timestamp.minute, trace_msg.timestamp.second
             )
             self._trace_to_html(formatted_msg, trace_msg.color_name, fd)
 
@@ -166,6 +167,9 @@ class TracerQueue:
         print(msg)
         if not self.running:
             return
+        
+        if Path("../TraceEnable.txt") and not self.html_trace:
+            self.set_html_trace(True)
 
         # Obtém informações da thread atual
         current_thread = threading.current_thread()
@@ -249,7 +253,7 @@ class TracerQueue:
 
                 x = get_localtime()
                 fd = "%04d_%02d_%02d_%02d_%02d_%02d" % (
-                    x.tm_year, x.tm_mon, x.tm_mday, x.tm_hour, x.tm_min, x.tm_sec
+                    x.year, x.month, x.day, x.hour, x.minute, x.second
                 )
 
                 if is_windows():
@@ -471,7 +475,7 @@ def error(msg):
     get_tracer().trace_message("****" + msg)
     x = get_localtime()
     timestamp = "%04d/%02d/%02d %02d:%02d:%02d.%06d " % (
-        x.tm_year, x.tm_mon, x.tm_mday, x.tm_hour, x.tm_min, x.tm_sec,
+        x.year, x.month, x.day, x.hour, x.minute, x.second,
         getattr(x, 'tm_microsecond', 0)  # tm_microsecond pode não existir
     )
     error_msg = "ERROR" + timestamp + msg + '\n'
@@ -484,10 +488,10 @@ def report_exception(e, do_sleep=True):
     x = get_localtime()
     header = "\n\n************************************************************************\n"
     header += "Exception date: %04d/%02d/%02d %02d:%02d:%02d.%06d \n" % (
-        x.tm_year, x.tm_mon, x.tm_mday, x.tm_hour, x.tm_min, x.tm_sec,
+        x.year, x.month, x.day, x.hour, x.minute, x.second,
         getattr(x, 'tm_microsecond', 0)
     )
-    header += f"Version {CONTROLLER_VERSION}\n"
+    # header += f"Version {CONTROLLER_VERSION}\n"
     header += "\n"
 
     # Escreve header nos outputs

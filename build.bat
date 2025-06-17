@@ -1,0 +1,1 @@
+pyinstaller --additional-hooks-dir=. integration.py

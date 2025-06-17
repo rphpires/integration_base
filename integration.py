@@ -1,6 +1,7 @@
 
 import json
 import time
+import schedule
 
 from modules.invenzi import Invenzi
 from db_handlers.oracle import OracleDBManager
@@ -9,8 +10,8 @@ from utils.tracer import trace, report_exception
 from utils.local_cache import LocalCache
 
 
-CHTYPES = [2, 3]
-ACCCESS_LEVELS = [1, 2]
+CHTYPES = [2, 7]
+ACCCESS_LEVELS = [21]
 
 
 # db_config_windows = {
@@ -21,7 +22,7 @@ ACCCESS_LEVELS = [1, 2]
 # mppr_db = SQLServerDBManager(**db_config_windows)
 
 invenzi = Invenzi()
-mppr_db = OracleDBManager()
+mppr_db = OracleDBManager('W_ACCESS', 'MGE5NjU3YmQ3ZTN#@1', 'oraprd2.mppr:1521/wxsp1')
 local_cache = LocalCache(mppr_db)
 
 # local_cache.clear_cache_completely()
@@ -35,7 +36,7 @@ SELECT
     desc_funcao,
     status,
     cod_regime
-FROM {table}
+FROM EADM.VW_WA_PESSOA_CONTROLE_ACESSO
 """
 
 
@@ -43,8 +44,9 @@ def get_all_wxs_users(mppr_users_list):
     wxs_users_dict = {}
     include_tables = "Cards,CHAccessLevels"
     try:
-        if len(mppr_users_list) > 30:
-            all_wxs_users = invenzi.get_all_users(ch_types=CHTYPES, include_tables=include_tables)
+        if len(mppr_users_list['data']) > 30:
+            # all_wxs_users = invenzi.get_all_users(ch_types=CHTYPES, include_tables=include_tables)
+            all_wxs_users = invenzi.get_all_users(include_tables=include_tables)
             print(len(all_wxs_users))
 
             for user in all_wxs_users:
@@ -71,6 +73,21 @@ def get_all_wxs_users(mppr_users_list):
         return wxs_users_dict
 
 
+def check_visitor_state(wxs_user):
+    try:
+        if not (_visitor := invenzi.get_user_by_idnumber(wxs_user["IdNumber"], include_tables="Cards,CHAccessLevels,ActiveVisit")):
+            return None
+        
+        if _visitor.get('ActiveVisit'):
+            invenzi.end_visit()
+
+        return _visitor
+
+    except Exception as ex:
+        report_exception(ex)
+        return None
+    
+    
 def main():
     wxs_users_dict = {}
     # ret = mppr_db.execute_query(script)
@@ -107,13 +124,16 @@ def main():
                 fields_with_difference = [field for field in fields_to_compare if wxs_user[field] != mppr_user[field]]
 
                 if fields_with_difference:
+                    if "CHType" in fields_with_difference and wxs_user["CHType"] == 1:
+                        wxs_user = check_visitor_state(wxs_user)
+
                     for upd_field in fields_with_difference:
                         wxs_user[upd_field] = mppr_user[upd_field]
-
+                    
                     invenzi.update_user(wxs_user)
                 else:
                     trace(f"No changes for user {nome} (CPF: {cpf})")
-
+                
                 if not wxs_user.get('Cards'):
                     invenzi.assign_card(wxs_user)
 
@@ -130,9 +150,40 @@ def main():
             continue
 
 
+def delete_duplicated_users():
+    wxs_users_dict = {}
+    all_wxs_users = invenzi.get_all_users()
+    for user in all_wxs_users:
+        if user["IdNumber"] in ['#_', '#¬']:
+            print("invalid character")
+            continue
+
+        if user["IdNumber"] in wxs_users_dict:
+            trace(f"Duplicate IdNumber found: {user['IdNumber']}")
+            wxs_users_dict[user["IdNumber"]].append(user)
+        elif not user["IdNumber"]:
+            print("User has no IdNumber, skipping...")
+        else:
+            wxs_users_dict[user["IdNumber"]] = [user]
+    
+    for id, user_list in wxs_users_dict.items():
+        if len(user_list) >= 2:
+            for user in user_list[1:]:
+                invenzi.delete_user(user["CHID"])
+    
+
+def process_all_users():
+    local_cache.clear_cache_completely()
+
+local_cache.clear_cache_completely()
+schedule.every().day.at("04:00").do(process_all_users)
+
+# delete_duplicated_users()
+
 if __name__ == '__main__':
     trace("Starting MPPR Integration")
     while True:
+        schedule.run_pending()
         main()
-        trace("Integration cycle completed, sleeping for 30 seconds...")
-        time.sleep(5)
+        trace("Integration cycle completed, sleeping for 60 seconds...")
+        time.sleep(60)
