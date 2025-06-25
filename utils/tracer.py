@@ -22,13 +22,21 @@ except ImportError:
     ERROR_LOG_FILE = "logs/ErrorLog.txt"
 
     def get_localtime():
-        return time.localtime()
+        # Ajuste para GMT -3
+        utc_now = datetime.datetime.utcnow()
+        gmt_minus_3 = utc_now - datetime.timedelta(hours=3)
+        return gmt_minus_3.timetuple()
 
     def is_windows():
         return os.name == 'nt'
 
     def remove_accents_from_string(text):
         return text
+
+    def format_date(timestamp_struct):
+        """Formata timestamp para string"""
+        dt = datetime.datetime(*timestamp_struct[:6])
+        return dt.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
 
 # Configurações
 
@@ -53,6 +61,7 @@ class TraceMessage:
     color_name: str
     timestamp: time.struct_time
     thread_name: str
+    custom_color: Optional[str] = None  # Nova propriedade para cor personalizada
 
 
 class TracerQueue:
@@ -92,6 +101,12 @@ class TracerQueue:
 
         self._setup_error_logging()
         self._start_worker()
+
+    def _get_gmt_minus_3_time(self):
+        """Retorna o horário atual ajustado para GMT -3"""
+        utc_now = datetime.datetime.utcnow()
+        gmt_minus_3 = utc_now - datetime.timedelta(hours=3)
+        return gmt_minus_3.timetuple()
 
     def _setup_error_logging(self):
         """Configura redirecionamento de erro para arquivo"""
@@ -133,24 +148,28 @@ class TracerQueue:
         if not self.html_trace and not self.screen_trace:
             return
 
-        # Formata a mensagem
-        date_str = format_date(trace_msg.timestamp)
+        # Converter struct_time para datetime
+        dt = datetime.datetime(*trace_msg.timestamp[:6])
+        date_str = dt.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+
         formatted_msg = f"{date_str} - {trace_msg.message}"
         formatted_msg = remove_accents_from_string(formatted_msg)
 
+        # Determina a cor final (custom_color tem prioridade sobre class_color)
+        final_color = trace_msg.custom_color or trace_msg.color_name
+
         # Processa para tela
         if self.screen_trace:
-            self._trace_to_screen(formatted_msg, trace_msg.color_name)
+            self._trace_to_screen(formatted_msg, final_color)
 
         # Processa para HTML
         if self.html_trace:
-            # x.year, x.month, x.day, x.hour, x.minute, x.second,
             fd = "%04d_%02d_%02d_%02d_%02d_%02d" % (
-                trace_msg.timestamp.year, trace_msg.timestamp.month,
-                trace_msg.timestamp.day, trace_msg.timestamp.hour,
-                trace_msg.timestamp.minute, trace_msg.timestamp.second
+                trace_msg.timestamp.tm_year, trace_msg.timestamp.tm_mon,
+                trace_msg.timestamp.tm_mday, trace_msg.timestamp.tm_hour,
+                trace_msg.timestamp.tm_min, trace_msg.timestamp.tm_sec
             )
-            self._trace_to_html(formatted_msg, trace_msg.color_name, fd)
+            self._trace_to_html(formatted_msg, final_color, fd)
 
     def _check_flush(self):
         """Verifica se precisa fazer flush do arquivo"""
@@ -163,13 +182,25 @@ class TracerQueue:
             except Exception as ex:
                 print(f"Erro no flush do trace: {ex}")
 
-    def trace_message(self, msg: str):
+    def trace_message(self, msg: str, color: str = None):
+        """
+        Adiciona mensagem ao trace com cor opcional
+
+        Args:
+            msg: Mensagem a ser trackeada
+            color: Cor personalizada (opcional). Se fornecida, sobrescreve a cor da classe
+        """
         print(msg)
         if not self.running:
             return
-        
-        if Path("../TraceEnable.txt") and not self.html_trace:
-            self.set_html_trace(True)
+
+        try:
+            enable_trace = bool(os.getenv('ENABLE_TRACE'))
+        except AttributeError:
+            enable_trace = self.config.enable_trace
+
+        if enable_trace != self.html_trace:
+            self.set_html_trace(enable_trace)
 
         # Obtém informações da thread atual
         current_thread = threading.current_thread()
@@ -187,15 +218,16 @@ class TracerQueue:
             except IndexError:
                 thread_type = ''
 
-        # Determina cor
-        color_name = self.class_color_trace.get(thread_type, "white")
+        # Determina cor da classe (será usada apenas se não houver cor personalizada)
+        class_color = self.class_color_trace.get(thread_type, "white")
 
         # Cria mensagem e adiciona à queue
         trace_msg = TraceMessage(
             message=msg,
-            color_name=color_name,
-            timestamp=get_localtime(),
-            thread_name=thread_name
+            color_name=class_color,  # Cor baseada na classe
+            timestamp=self._get_gmt_minus_3_time(),  # Usando GMT -3
+            thread_name=thread_name,
+            custom_color=color  # Cor personalizada (pode ser None)
         )
 
         try:
@@ -251,9 +283,9 @@ class TracerQueue:
                 if is_windows():
                     sys.stderr.close()
 
-                x = get_localtime()
+                x = self._get_gmt_minus_3_time()
                 fd = "%04d_%02d_%02d_%02d_%02d_%02d" % (
-                    x.year, x.month, x.day, x.hour, x.minute, x.second
+                    x.tm_year, x.tm_mon, x.tm_mday, x.tm_hour, x.tm_min, x.tm_sec
                 )
 
                 if is_windows():
@@ -449,47 +481,70 @@ tracer = get_tracer()
 # =====================================================================
 
 
-def trace(msg):
-    """Função simples para trace com remoção de acentos"""
-    get_tracer().trace_message(remove_accents_from_string(msg))
+def trace(msg, color=None):
+    """
+    Função simples para trace com remoção de acentos e cor opcional
+
+    Args:
+        msg: Mensagem a ser trackeada
+        color: Cor personalizada (opcional). Ex: 'red', 'green', 'blue', etc.
+    """
+    get_tracer().trace_message(remove_accents_from_string(msg), color)
 
 
-def trace_elapsed(msg, reference_utc_time):
-    """Trace com cálculo de tempo decorrido em milissegundos"""
+def trace_elapsed(msg, reference_utc_time, color=None):
+    """
+    Trace com cálculo de tempo decorrido em milissegundos
+
+    Args:
+        msg: Mensagem base
+        reference_utc_time: Tempo de referência para calcular elapsed
+        color: Cor personalizada (opcional)
+    """
     delta = datetime.datetime.utcnow() - reference_utc_time
     if not hasattr(delta, 'total_seconds'):
-        get_tracer().trace_message(msg)
+        get_tracer().trace_message(msg, color)
         return
     elapsed_ms = int(delta.total_seconds() * 1000)
     msg += " (%d ms)" % elapsed_ms
-    get_tracer().trace_message(msg)
+    get_tracer().trace_message(msg, color)
 
 
-def info(msg):
-    """Função de conveniência para mensagens informativas"""
-    get_tracer().trace_message(msg)
+def info(msg, color=None):
+    """
+    Função de conveniência para mensagens informativas
+
+    Args:
+        msg: Mensagem informativa
+        color: Cor personalizada (opcional)
+    """
+    get_tracer().trace_message(msg, color)
 
 
 def error(msg):
     """Função para mensagens de erro (aparece destacado e vai para stderr/stdout)"""
-    get_tracer().trace_message("****" + msg)
-    x = get_localtime()
+    get_tracer().trace_message("****" + msg, "red")  # Força cor vermelha para erros
+
+    # Usar GMT -3 para o timestamp do erro também
+    gmt_minus_3_time = datetime.datetime.utcnow() - datetime.timedelta(hours=3)
     timestamp = "%04d/%02d/%02d %02d:%02d:%02d.%06d " % (
-        x.year, x.month, x.day, x.hour, x.minute, x.second,
-        getattr(x, 'tm_microsecond', 0)  # tm_microsecond pode não existir
+        gmt_minus_3_time.year, gmt_minus_3_time.month, gmt_minus_3_time.day,
+        gmt_minus_3_time.hour, gmt_minus_3_time.minute, gmt_minus_3_time.second,
+        gmt_minus_3_time.microsecond
     )
     error_msg = "ERROR" + timestamp + msg + '\n'
     sys.stderr.write(error_msg)
     sys.stdout.write(error_msg)
 
 
-def report_exception(e, do_sleep=True):
-    """Relata exceções de forma detalhada com timestamp e informações do sistema"""
-    x = get_localtime()
+def report_exception(e, do_sleep=False):
+    """Relata exceções de forma detalhada com timestamp GMT -3 e informações do sistema"""
+    gmt_minus_3_time = datetime.datetime.utcnow() - datetime.timedelta(hours=3)
     header = "\n\n************************************************************************\n"
     header += "Exception date: %04d/%02d/%02d %02d:%02d:%02d.%06d \n" % (
-        x.year, x.month, x.day, x.hour, x.minute, x.second,
-        getattr(x, 'tm_microsecond', 0)
+        gmt_minus_3_time.year, gmt_minus_3_time.month, gmt_minus_3_time.day,
+        gmt_minus_3_time.hour, gmt_minus_3_time.minute, gmt_minus_3_time.second,
+        gmt_minus_3_time.microsecond
     )
     # header += f"Version {CONTROLLER_VERSION}\n"
     header += "\n"
@@ -517,7 +572,7 @@ def report_exception(e, do_sleep=True):
     except (IndexError, AttributeError):
         thread_type = 'UNKNOWN'
 
-    # Reporta erro via trace
+    # Reporta erro via trace com cor vermelha
     error(f"Bypassing exception at {thread_type} ({e})")
     error(f"**** Exception: <code>{traceback.format_exc()}</code>")
 
@@ -527,9 +582,15 @@ def report_exception(e, do_sleep=True):
 
 
 # Função de conveniência para compatibilidade com código existente
-def trace_message(msg):
-    """Função para compatibilidade com código existente"""
-    get_tracer().trace_message(msg)
+def trace_message(msg, color=None):
+    """
+    Função para compatibilidade com código existente
+
+    Args:
+        msg: Mensagem a ser trackeada
+        color: Cor personalizada (opcional)
+    """
+    get_tracer().trace_message(msg, color)
 
 
 # Função para controle do tracer

@@ -9,6 +9,9 @@ from dotenv import load_dotenv
 
 from utils.tracer import trace, report_exception
 from utils.functions import parse_date, remove_accents_from_string
+from db_handlers.sql import SQLServerDBManager
+
+from .class_invenzi import ComboField
 
 
 load_dotenv()
@@ -28,29 +31,39 @@ class Invenzi:
         self.api_url = None
         self.api_user = None
         self.api_password = None
+        self.wxs_db_handler = SQLServerDBManager(
+            'SRV-WXS\\W_ACCESS',
+            'W_Access',
+            'W-Access',
+            'db_W-X-S@Wellcare924_',
+            driver='ODBC Driver 17 for SQL Server'
+        )
 
         self.initialize_environment(environment)
 
     def initialize_environment(self, environment: str):
         if environment == 'prod':
             self.api_url = os.getenv("API_URL") if os.getenv("API_URL") else "http://localhost/W-AccessAPI/v1"
-            api_user = os.getenv("API_USER") if os.getenv("API_USER") else "WAccessAPI"
-            api_password = os.getenv("API_PASSWORD") if os.getenv("API_PASSWORD") else "#WAccessAPI#"
+            self.api_user = os.getenv("API_USER") if os.getenv("API_USER") else "WAccessAPI"
+            self.api_password = os.getenv("API_PASSWORD") if os.getenv("API_PASSWORD") else "#WAccessAPI#"
         else:
             self.api_url = "http://localhost/W-AccessAPI/v1"
-            self.api_user = api_user or "WAccessAPI"
-            self.api_password = api_password or "#WAccessAPI#"
+            self.api_user = "WAccessAPI"
+            self.api_password = "#WAccessAPI#"
             self._session = None
 
     def _get_session(self):
         """Get or create HTTP session"""
         if not self._session:
             self._session = requests.Session()
-            self._session.auth = (self.api_user, self.api_password)
-            self._session.headers.update({'Content-Type': 'application/json'})
+            # self._session.auth = (self.api_user, self.api_password)
+            self._session.headers.update({
+                'Content-Type': 'application/json', 
+                'WAccessAuthentication': f'{self.api_user}:{self.api_password}'
+            })
         return self._session
 
-    def _api_call(self, endpoint: str, method: str = 'GET', data: Dict = None, params: Dict = {}) -> tuple[bool, Dict]:
+    def _api_call(self, endpoint: str, method: str = 'GET', data: Dict = None, params: Dict = {}, files=None) -> tuple[bool, Dict]:
         """Make API call and return success and response data"""
         try:
             session = self._get_session()
@@ -60,16 +73,23 @@ class Invenzi:
                 params['CallAction'] = False
 
             rc = requests.codes
-            response = session.request(method, url, json=data, params=params)
-            success = response.status_code in [rc.ok, rc.created, rc.no_content]
+            
+            if files:
+                response = requests.put(
+                    url, 
+                    files=files, 
+                    headers={'WAccessAuthentication': f'{self.api_user}:{self.api_password}'}
+                )
+            else:
+                response = session.request(method, url, json=data, params=params)
 
-            if success:
+            if success := response.status_code in [rc.ok, rc.created, rc.no_content]:
                 try:
                     response_data = response.json() if response.status_code != rc.no_content else {}
                 except Exception:
                     response_data = {}
             else:
-                self.trace(f"API Error: {response.status_code}")
+                self.trace(f"API Error: {response.status_code} | {response.content}")
                 response_data = {}
 
             return success, response_data
@@ -91,7 +111,7 @@ class Invenzi:
 
         if ch_types := kwargs.get('ch_types'):
             params["chType"] = ch_types
-            
+
         if include_tables := kwargs.get('include_tables'):
             params["IncludeTables"] = include_tables
 
@@ -101,7 +121,7 @@ class Invenzi:
             if not success:
                 trace("Failed to retrieve users or no users found")
                 break
-            
+
             trace('Appending users to obj...')
             for user_data in data:
                 users.append(user_data)
@@ -123,8 +143,8 @@ class Invenzi:
             'PartitionID': 1,
             'CHState': 0,
             'CHType': 2,
-            'FirstName': f'New Created User - {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}',
-            'CHEndValidityDateTime': end_validity.strftime("%Y-%m-%d %H:%M:%S")
+            'FirstName': f'New Created User - {datetime.now().strftime("%Y-%m-%dT%H:%M:%S")}',
+            'CHEndValidityDateTime': end_validity.strftime("%Y-%m-%dT%H:%M:%S")
         }
         for field in required_fields.keys():
             if field not in user:
@@ -138,11 +158,11 @@ class Invenzi:
             current_validity_dte = parse_date(user.get('CHEndValidityDateTime'))
             if current_validity_dte < datetime.now():
                 self.trace(f"User {user.get('CHID')} has expired validity date, updating to 10 years from now")
-                user['CHEndValidityDateTime'] = (datetime.now() + relativedelta(years=10)).strftime("%Y-%m-%d %H:%M:%S")
+                user['CHEndValidityDateTime'] = (datetime.now() + relativedelta(years=10)).strftime("%Y-%m-%dT%H:%M:%S")
 
-        except ValueError:
+        except Exception as e:
             self.trace(f"Invalid date format for user {user.get('CHID')}, setting to 10 years from now")
-            user['CHEndValidityDateTime'] = (datetime.now() + relativedelta(years=10)).strftime("%Y-%m-%d %H:%M:%S")
+            user['CHEndValidityDateTime'] = (datetime.now() + relativedelta(years=10)).strftime("%Y-%m-%dT%H:%M:%S")
         
         finally:
             return user
@@ -196,7 +216,7 @@ class Invenzi:
 
         success, data = self._api_call("cardholders", method='POST', data=_new_user)
         if success and data:
-            self.trace(f"New user created: {data}")
+            self.trace(f"New user created with CHID={data['CHID']}, Name={data['FirstName']}")
             return data
         else:
             self.trace("Failed to create new user")
@@ -231,6 +251,16 @@ class Invenzi:
             self.trace(f"Failed to delete")
             return None
 
+    def photo_update(self, chid, photo, photo_num = 1):
+        self.trace(f"Atualizando foto do usuário CHID={chid}")
+        success, _ = self._api_call(
+            f"cardholders/{chid}/photos/{photo_num}",
+            method='PUT',
+            files=(('photoJpegData', photo),)
+        )
+        if success:
+            self.trace("Foto atualizada com sucesso.")
+        
     def assign_card(self, user: dict, new_card: dict = None):
         try:
             if new_card:
@@ -325,3 +355,131 @@ class Invenzi:
         else:
             self.trace(f"Failed to end visit to user {visitor['FirstName']}")
             return None
+
+    def combo_fields_get_items(self, field_id=None, chtype=None, combo_index=None):
+        try:
+            self.trace(f'Getting all items from combofield: {field_id}, CHTpe: {chtype}')
+            params = {}
+            if field_id:
+                params["fieldID"] = f'lstBDA_{field_id}' if not field_id.startswith('lstBDA_') else field_id
+
+            if chtype:
+                params["chType"] = chtype
+
+            if combo_index:
+                params["comboIndex"] = combo_index
+
+            success, items_list = self._api_call(
+                f"chComboFields",
+                method='GET',
+                params=params
+            )
+            if success:
+                self.trace(f"Returning {len(items_list)} Items")
+                return [ComboField.from_dict(x) for x in items_list if x is not None]
+            else:
+                return []
+
+        except Exception as ex:
+            report_exception(ex)
+    
+    def combo_fields_add_item(self, field_id: str, chtype: int, combo_index: int, name: str):
+        try:
+            new_item = {
+                "FieldID": f'lstBDA_{field_id}' if not field_id.startswith('lstBDA_') else field_id,
+                "CHType": int(chtype),
+                "ComboIndex": int(combo_index),
+                "strLanguage1": name,
+                "strLanguage2": name,
+                "strLanguage3": name,
+                "strLanguage4": '-',
+                "Sequence": 0
+            }
+            success, created_item = self._api_call(
+                f"chComboFields",
+                method="PUT",
+                data=new_item
+            )
+            if success:
+                self.trace(f"New item create to comboField= {field_id} with ComboIndex={combo_index}")
+                return success
+
+        except Exception as ex:
+            report_exception(ex)
+    
+    def groups_get_group(self, group_id=None):
+        try:
+            success, groups = self._api_call(
+                'groups' if not group_id else f'groups/{group_id}',
+                method="GET"
+            )
+            if success:
+                self.trace(f"Returning {len(groups)} Groups")
+                return groups
+            else:
+                return []
+        
+        except Exception as ex:
+            report_exception(ex)
+
+    def groups_create_group(self, group_name):
+        try:
+            # Check if group exists before create it.
+            if ret := self.wxs_db_handler.execute_query(f"select top 1 GroupID from CfgCHGroups where GroupName = '{group_name}'"):
+                self.trace(f"Group [{group_name}] already exisits with GroupID={ret}")
+                return str(ret[0].get('GroupID'))
+            
+            self.wxs_db_handler.execute_dml(
+                "insert into CfgCHGroups values(0, ?, null, null, null, null)", 
+                (group_name,)
+            )
+            
+            if ret := self.wxs_db_handler.execute_query(f"select top 1 GroupID from CfgCHGroups where GroupName = '{group_name}'"):
+                self.trace(f"Group [{group_name}] exisits with GroupID={ret}")
+                group_id = ret[0].get('GroupID')
+            
+            self.wxs_db_handler.execute_dml(
+                "insert into CfgCHRelatedGroups values(?, ?)", 
+                (group_id, 1)
+            )
+            
+            return str(group_id)
+
+        except Exception as ex:
+            report_exception(ex)
+            return None
+
+    def add_user_to_group(self, chid, group_id):
+        try:
+            success, _ = self._api_call(
+                f"cardholders/{chid}/groups/{group_id}",
+                method="POST"
+            )
+            if success:
+                self.trace(f"Usuário adicionado ao grupo com sucesso.")
+        
+        except Exception as ex:
+            report_exception(ex)
+    
+    def remove_user_from_group(self, chid, group_id):
+        try:
+            success, _ = self._api_call(
+                f"cardholders/{chid}/groups/{group_id}",
+                method="DELETE"
+            )
+            if success:
+                self.trace(f"Usuário removido do grupo com sucesso.")
+        
+        except Exception as ex:
+            report_exception(ex)
+
+
+if __name__ == '__main__':
+    import sys
+    from pathlib import Path
+    
+    project_root = Path(__file__).parent.parent.parent
+    sys.path.insert(0, str(project_root))
+
+    wxs = Invenzi()
+    wxs.groups_create_group()

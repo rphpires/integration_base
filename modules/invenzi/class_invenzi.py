@@ -322,6 +322,37 @@ class BaseUser:
         status = "Active" if self.CHState == 0 else "Inactive" if self.CHState == 1 else "Blocked"
         return f"{full_name} (ID: {self.CHID}) - {status}"
 
+
+@dataclass
+class ComboField:
+   FieldID: str
+   CHType: int
+   ComboIndex: int
+   strLanguage1: str
+   strLanguage2: str
+   strLanguage3: str
+   strLanguage4: str
+   Sequence: Optional[int] = None
+   
+   @classmethod
+   def from_dict(cls, data: dict) -> 'ComboField':
+       """Cria instância a partir de dicionário"""
+       return cls(**data)
+   
+   def to_dict(self) -> dict:
+       """Converte para dicionário"""
+       return {
+           "FieldID": self.FieldID,
+           "CHType": self.CHType,
+           "ComboIndex": self.ComboIndex,
+           "strLanguage1": self.strLanguage1,
+           "strLanguage2": self.strLanguage2,
+           "strLanguage3": self.strLanguage3,
+           "strLanguage4": self.strLanguage4,
+           "Sequence": self.Sequence
+       }
+
+
 # ===============================
 # INVENZI USER (ADDS CONVENIENCE METHODS)
 # ===============================

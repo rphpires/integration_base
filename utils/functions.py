@@ -73,6 +73,9 @@ def format_date(x: datetime) -> str:
 
 def parse_date(date_str: str) -> datetime | None:
     """Tenta converter a string de data usando vários formatos."""
+    if not date_str:
+        return None
+
     for fmt in DATETIME_FORMATS:
         try:
             return datetime.strptime(date_str, fmt)

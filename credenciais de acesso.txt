@@ -1,0 +1,16 @@
+Santa Casa
+Dados para conexão com o View: 
+Conexão - Senior Oracle
+
+pdb_scmsc.sub08211821591.vcnscsaocarlos.oraclevcn.com
+host : 10.99.1.5
+porta: 1521
+
+Nome da view: VW_USU_VR35
+Usuário: USRSCMSUSUVR35
+Senha: tb67574#EHgY#yjtGHJ
+
+
+
+>> Diretório fotos:
+F:\Departamentos\RH\Fotos Relógios WFO\Fotos para o WFO-1-001\Fotos para o WFO
