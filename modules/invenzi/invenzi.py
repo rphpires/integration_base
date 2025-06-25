@@ -58,7 +58,7 @@ class Invenzi:
             self._session = requests.Session()
             # self._session.auth = (self.api_user, self.api_password)
             self._session.headers.update({
-                'Content-Type': 'application/json', 
+                'Content-Type': 'application/json',
                 'WAccessAuthentication': f'{self.api_user}:{self.api_password}'
             })
         return self._session
@@ -73,11 +73,11 @@ class Invenzi:
                 params['CallAction'] = False
 
             rc = requests.codes
-            
+
             if files:
                 response = requests.put(
-                    url, 
-                    files=files, 
+                    url,
+                    files=files,
                     headers={'WAccessAuthentication': f'{self.api_user}:{self.api_password}'}
                 )
             else:
@@ -160,10 +160,10 @@ class Invenzi:
                 self.trace(f"User {user.get('CHID')} has expired validity date, updating to 10 years from now")
                 user['CHEndValidityDateTime'] = (datetime.now() + relativedelta(years=10)).strftime("%Y-%m-%dT%H:%M:%S")
 
-        except Exception as e:
+        except Exception:
             self.trace(f"Invalid date format for user {user.get('CHID')}, setting to 10 years from now")
             user['CHEndValidityDateTime'] = (datetime.now() + relativedelta(years=10)).strftime("%Y-%m-%dT%H:%M:%S")
-        
+
         finally:
             return user
 
@@ -180,7 +180,7 @@ class Invenzi:
 
     def get_user_by_idnumber(self, id_number: str, **kwargs):
         self.trace(f"Searching user with IdNumber: {id_number}")
-        
+
         params = {"idNumber": id_number}
         if include_tables := kwargs.get('include_tables'):
             params["IncludeTables"] = include_tables
@@ -245,13 +245,13 @@ class Invenzi:
             method='DELETE'
         )
         if success:
-            self.trace(f"User deleted")
+            self.trace("User deleted")
             return data
         else:
-            self.trace(f"Failed to delete")
+            self.trace("Failed to delete")
             return None
 
-    def photo_update(self, chid, photo, photo_num = 1):
+    def photo_update(self, chid, photo, photo_num=1):
         self.trace(f"Atualizando foto do usuário CHID={chid}")
         success, _ = self._api_call(
             f"cardholders/{chid}/photos/{photo_num}",
@@ -260,7 +260,7 @@ class Invenzi:
         )
         if success:
             self.trace("Foto atualizada com sucesso.")
-        
+
     def assign_card(self, user: dict, new_card: dict = None):
         try:
             if new_card:
@@ -271,11 +271,11 @@ class Invenzi:
                 card = self.create_random_card()
 
             self.trace(f"Assigning card {card} to user {user}")
-            
+
             end_validity = datetime.now() + relativedelta(years=10)
             card["CardEndValidityDateTime"] = end_validity.strftime("%Y-%m-%dT%H:%M:%S")
             card["CardStartValidityDateTime"] = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
-                
+
             success, data = self._api_call(
                 f"cardholders/{user.get('CHID')}/cards",
                 method='POST',
@@ -297,7 +297,7 @@ class Invenzi:
     def create_random_card(self):
         MAX_CARDNUMER = 65534
         MIN_CARDNUMBER = 1000
-        
+
         end_validity = datetime.now() + relativedelta(years=10)
 
         __card_created = False
@@ -343,7 +343,7 @@ class Invenzi:
 
     def start_visit(self):
         pass
-    
+
     def end_visit(self, visitor):
         success, data = self._api_call(
             f"cardholders/{visitor['CHID']}/activeVisit",
@@ -370,7 +370,7 @@ class Invenzi:
                 params["comboIndex"] = combo_index
 
             success, items_list = self._api_call(
-                f"chComboFields",
+                "chComboFields",
                 method='GET',
                 params=params
             )
@@ -382,7 +382,7 @@ class Invenzi:
 
         except Exception as ex:
             report_exception(ex)
-    
+
     def combo_fields_add_item(self, field_id: str, chtype: int, combo_index: int, name: str):
         try:
             new_item = {
@@ -396,7 +396,7 @@ class Invenzi:
                 "Sequence": 0
             }
             success, created_item = self._api_call(
-                f"chComboFields",
+                "chComboFields",
                 method="PUT",
                 data=new_item
             )
@@ -406,7 +406,7 @@ class Invenzi:
 
         except Exception as ex:
             report_exception(ex)
-    
+
     def groups_get_group(self, group_id=None):
         try:
             success, groups = self._api_call(
@@ -418,7 +418,7 @@ class Invenzi:
                 return groups
             else:
                 return []
-        
+
         except Exception as ex:
             report_exception(ex)
 
@@ -428,21 +428,21 @@ class Invenzi:
             if ret := self.wxs_db_handler.execute_query(f"select top 1 GroupID from CfgCHGroups where GroupName = '{group_name}'"):
                 self.trace(f"Group [{group_name}] already exisits with GroupID={ret}")
                 return str(ret[0].get('GroupID'))
-            
+
             self.wxs_db_handler.execute_dml(
-                "insert into CfgCHGroups values(0, ?, null, null, null, null)", 
+                "insert into CfgCHGroups values(0, ?, null, null, null, null)",
                 (group_name,)
             )
-            
+
             if ret := self.wxs_db_handler.execute_query(f"select top 1 GroupID from CfgCHGroups where GroupName = '{group_name}'"):
                 self.trace(f"Group [{group_name}] exisits with GroupID={ret}")
                 group_id = ret[0].get('GroupID')
-            
+
             self.wxs_db_handler.execute_dml(
-                "insert into CfgCHRelatedGroups values(?, ?)", 
+                "insert into CfgCHRelatedGroups values(?, ?)",
                 (group_id, 1)
             )
-            
+
             return str(group_id)
 
         except Exception as ex:
@@ -456,11 +456,11 @@ class Invenzi:
                 method="POST"
             )
             if success:
-                self.trace(f"Usuário adicionado ao grupo com sucesso.")
-        
+                self.trace("Usuário adicionado ao grupo com sucesso.")
+
         except Exception as ex:
             report_exception(ex)
-    
+
     def remove_user_from_group(self, chid, group_id):
         try:
             success, _ = self._api_call(
@@ -468,8 +468,8 @@ class Invenzi:
                 method="DELETE"
             )
             if success:
-                self.trace(f"Usuário removido do grupo com sucesso.")
-        
+                self.trace("Usuário removido do grupo com sucesso.")
+
         except Exception as ex:
             report_exception(ex)
 
@@ -477,7 +477,7 @@ class Invenzi:
 if __name__ == '__main__':
     import sys
     from pathlib import Path
-    
+
     project_root = Path(__file__).parent.parent.parent
     sys.path.insert(0, str(project_root))
 
